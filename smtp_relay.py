@@ -31,7 +31,7 @@ logger.info(f"Starting mail relay for {USER_EMAIL}")
 
 # MSAL configuration
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
-SCOPE = ["https://graph.microsoft.com/.default"]
+SCOPE = ["https://graph.microsoft.com/Mail.Send"]
 
 # Initialize MSAL application
 try:
@@ -55,6 +55,7 @@ def get_access_token():
         if not result:
             logger.info("No token in cache, requesting new token")
             result = msal_app.acquire_token_for_client(scopes=SCOPE)
+            logger.debug(f"Token request result: {json.dumps(result, indent=2)}")
         
         if "access_token" in result:
             logger.info("Successfully acquired access token")
@@ -95,17 +96,28 @@ def send_email_via_graph(access_token, to_address, subject, body):
     }
     
     try:
+        api_url = f'https://graph.microsoft.com/v1.0/users/{USER_EMAIL}/sendMail'
+        logger.debug(f"Sending request to: {api_url}")
+        logger.debug(f"Headers: {headers}")
+        logger.debug(f"Data: {json.dumps(email_data, indent=2)}")
+        
         response = requests.post(
-            'https://graph.microsoft.com/v1.0/users/' + USER_EMAIL + '/sendMail',
+            api_url,
             headers=headers,
-            data=json.dumps(email_data)
+            json=email_data  # Changed from data=json.dumps() to json=
         )
-        response.raise_for_status()
+        
+        if not response.ok:
+            logger.error(f"Graph API Error: {response.status_code}")
+            logger.error(f"Response headers: {dict(response.headers)}")
+            logger.error(f"Response body: {response.text}")
+            response.raise_for_status()
+            
         logger.info("Email sent successfully via Graph API")
         return True
     except requests.exceptions.RequestException as e:
         logger.error(f"Error sending email via Graph API: {str(e)}")
-        if hasattr(e.response, 'text'):
+        if hasattr(e, 'response') and e.response is not None:
             logger.error(f"Graph API Error details: {e.response.text}")
         raise Exception(f"Failed to send email via Graph API: {str(e)}")
 
