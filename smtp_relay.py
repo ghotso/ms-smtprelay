@@ -34,7 +34,10 @@ logger.info(f"Starting SMTP relay for {USER_EMAIL} using {SMTP_SERVER}:{SMTP_POR
 
 # MSAL configuration
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
-SCOPE = ["https://graph.microsoft.com/.default"]
+SCOPE = [
+    "https://outlook.office365.com/SMTP.Send",
+    "https://outlook.office365.com/Mail.Send"
+]
 
 # Initialize MSAL application
 try:
@@ -52,9 +55,15 @@ def get_access_token():
     """Get OAuth access token for SMTP authentication"""
     logger.info("Requesting new access token")
     try:
-        result = msal_app.acquire_token_for_client(scopes=SCOPE)
+        # First try to get token from cache
+        result = msal_app.acquire_token_silent(scopes=SCOPE, account=None)
+        
+        if not result:
+            logger.info("No token in cache, requesting new token")
+            result = msal_app.acquire_token_for_client(scopes=SCOPE)
+        
         if "access_token" in result:
-            logger.info("Successfully acquired new access token")
+            logger.info("Successfully acquired access token")
             return result["access_token"]
         else:
             error_msg = f"Failed to get token: {result.get('error_description')}"
@@ -67,7 +76,9 @@ def get_access_token():
 def generate_oauth2_string(username, access_token):
     """Generate the XOAUTH2 auth string"""
     auth_string = f"user={username}\x01auth=Bearer {access_token}\x01\x01"
-    return base64.b64encode(auth_string.encode()).decode()
+    b64_string = base64.b64encode(auth_string.encode()).decode()
+    logger.debug("Generated OAuth2 authentication string")
+    return b64_string
 
 @app.route("/healthcheck", methods=["GET"])
 def healthcheck():
@@ -104,7 +115,9 @@ def handle_email():
         # Set up SMTP connection
         logger.info(f"Establishing SMTP connection to {SMTP_SERVER}:{SMTP_PORT}")
         context = ssl.create_default_context()
+        
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.set_debuglevel(1)  # Enable debug output
             server.starttls(context=context)
             logger.debug("TLS connection established")
             
@@ -114,7 +127,12 @@ def handle_email():
             
             # Authenticate using XOAUTH2
             server.ehlo()
-            server.docmd("AUTH", f"XOAUTH2 {auth_string}")
+            response = server.docmd("AUTH", f"XOAUTH2 {auth_string}")
+            logger.info(f"Authentication response: {response}")
+            
+            if response[0] != 235:  # 235 is success code for authentication
+                raise Exception(f"Authentication failed: {response}")
+                
             logger.info("Successfully authenticated with SMTP server")
             
             # Send email
