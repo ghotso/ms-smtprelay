@@ -9,7 +9,7 @@ import json
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,  # Changed to DEBUG for more detailed logs
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger('smtp_relay')
@@ -28,10 +28,11 @@ if not all([CLIENT_ID, CLIENT_SECRET, TENANT_ID, USER_EMAIL]):
     raise ValueError("Missing required environment variables!")
 
 logger.info(f"Starting mail relay for {USER_EMAIL}")
+logger.debug(f"Using tenant ID: {TENANT_ID}")
 
 # MSAL configuration
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
-SCOPE = ["https://graph.microsoft.com/Mail.Send"]
+SCOPE = ["https://graph.microsoft.com/.default"]  # Changed to use .default
 
 # Initialize MSAL application
 try:
@@ -55,7 +56,7 @@ def get_access_token():
         if not result:
             logger.info("No token in cache, requesting new token")
             result = msal_app.acquire_token_for_client(scopes=SCOPE)
-            logger.debug(f"Token request result: {json.dumps(result, indent=2)}")
+            logger.debug(f"Token request result: {json.dumps({k: v for k, v in result.items() if k != 'access_token'} if result else result, indent=2)}")
         
         if "access_token" in result:
             logger.info("Successfully acquired access token")
@@ -104,7 +105,7 @@ def send_email_via_graph(access_token, to_address, subject, body):
         response = requests.post(
             api_url,
             headers=headers,
-            json=email_data  # Changed from data=json.dumps() to json=
+            json=email_data
         )
         
         if not response.ok:
@@ -160,4 +161,4 @@ def handle_email():
         return {"error": error_msg}, 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=587) 
+    app.run(host="0.0.0.0", port=8080) 
