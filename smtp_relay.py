@@ -2,15 +2,17 @@ import os
 import logging
 from flask import Flask, request
 import requests
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-import msal
 import json
+import msal
 
 # Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,  # Changed to DEBUG for more detailed logs
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('/var/log/smtp-relay.log'),
+        logging.StreamHandler()
+    ]
 )
 logger = logging.getLogger('smtp_relay')
 
@@ -32,7 +34,7 @@ logger.debug(f"Using tenant ID: {TENANT_ID}")
 
 # MSAL configuration
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
-SCOPE = ["https://graph.microsoft.com/.default"]  # Changed to use .default
+SCOPE = ["https://graph.microsoft.com/.default"]
 
 # Initialize MSAL application
 try:
@@ -99,7 +101,6 @@ def send_email_via_graph(access_token, to_address, subject, body):
     try:
         api_url = f'https://graph.microsoft.com/v1.0/users/{USER_EMAIL}/sendMail'
         logger.debug(f"Sending request to: {api_url}")
-        logger.debug(f"Headers: {headers}")
         logger.debug(f"Data: {json.dumps(email_data, indent=2)}")
         
         response = requests.post(
@@ -159,6 +160,3 @@ def handle_email():
         error_msg = f"Error sending email: {str(e)}"
         logger.error(error_msg)
         return {"error": error_msg}, 500
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080) 
