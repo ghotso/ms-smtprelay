@@ -1,0 +1,14 @@
+version: "3.8"
+
+services:
+  smtp-relay:
+    image: ghcr.io/${GITHUB_USERNAME}/smtp-relay:latest
+    container_name: smtp-relay
+    ports:
+      - "587:587"
+    restart: unless-stopped
+    environment:
+      - CLIENT_ID=${CLIENT_ID}
+      - CLIENT_SECRET=${CLIENT_SECRET}
+      - TENANT_ID=common
+      - USER_EMAIL=${USER_EMAIL} 
