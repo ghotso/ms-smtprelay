@@ -1,12 +1,11 @@
 import os
 import logging
 from flask import Flask, request
-import smtplib
-import ssl
+import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import msal
-import base64
+import json
 
 # Configure logging
 logging.basicConfig(
@@ -18,8 +17,6 @@ logger = logging.getLogger('smtp_relay')
 app = Flask(__name__)
 
 # Configuration
-SMTP_SERVER = "smtp.office365.com"
-SMTP_PORT = 587
 CLIENT_ID = os.environ.get("CLIENT_ID")
 CLIENT_SECRET = os.environ.get("CLIENT_SECRET")
 TENANT_ID = os.environ.get("TENANT_ID")
@@ -30,14 +27,11 @@ if not all([CLIENT_ID, CLIENT_SECRET, TENANT_ID, USER_EMAIL]):
     logger.error("Missing required environment variables!")
     raise ValueError("Missing required environment variables!")
 
-logger.info(f"Starting SMTP relay for {USER_EMAIL} using {SMTP_SERVER}:{SMTP_PORT}")
+logger.info(f"Starting mail relay for {USER_EMAIL}")
 
 # MSAL configuration
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
-SCOPE = [
-    "https://outlook.office365.com/SMTP.Send",
-    "https://outlook.office365.com/Mail.Send"
-]
+SCOPE = ["https://graph.microsoft.com/.default"]
 
 # Initialize MSAL application
 try:
@@ -52,7 +46,7 @@ except Exception as e:
     raise
 
 def get_access_token():
-    """Get OAuth access token for SMTP authentication"""
+    """Get OAuth access token for Graph API"""
     logger.info("Requesting new access token")
     try:
         # First try to get token from cache
@@ -73,12 +67,47 @@ def get_access_token():
         logger.error(f"Error getting access token: {str(e)}")
         raise
 
-def generate_oauth2_string(username, access_token):
-    """Generate the XOAUTH2 auth string"""
-    auth_string = f"user={username}\x01auth=Bearer {access_token}\x01\x01"
-    b64_string = base64.b64encode(auth_string.encode()).decode()
-    logger.debug("Generated OAuth2 authentication string")
-    return b64_string
+def send_email_via_graph(access_token, to_address, subject, body):
+    """Send email using Microsoft Graph API"""
+    logger.info(f"Sending email via Graph API to: {to_address}")
+    
+    headers = {
+        'Authorization': f'Bearer {access_token}',
+        'Content-Type': 'application/json'
+    }
+    
+    email_data = {
+        "message": {
+            "subject": subject,
+            "body": {
+                "contentType": "Text",
+                "content": body
+            },
+            "toRecipients": [
+                {
+                    "emailAddress": {
+                        "address": to_address
+                    }
+                }
+            ]
+        },
+        "saveToSentItems": "true"
+    }
+    
+    try:
+        response = requests.post(
+            'https://graph.microsoft.com/v1.0/users/' + USER_EMAIL + '/sendMail',
+            headers=headers,
+            data=json.dumps(email_data)
+        )
+        response.raise_for_status()
+        logger.info("Email sent successfully via Graph API")
+        return True
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error sending email via Graph API: {str(e)}")
+        if hasattr(e.response, 'text'):
+            logger.error(f"Graph API Error details: {e.response.text}")
+        raise Exception(f"Failed to send email via Graph API: {str(e)}")
 
 @app.route("/healthcheck", methods=["GET"])
 def healthcheck():
@@ -105,39 +134,11 @@ def handle_email():
             logger.error("Missing required fields in request")
             return {"error": "Missing required fields"}, 400
 
-        # Create message
-        msg = MIMEMultipart()
-        msg["From"] = USER_EMAIL
-        msg["To"] = to_address
-        msg["Subject"] = subject
-        msg.attach(MIMEText(body, "plain"))
-
-        # Set up SMTP connection
-        logger.info(f"Establishing SMTP connection to {SMTP_SERVER}:{SMTP_PORT}")
-        context = ssl.create_default_context()
+        # Get access token
+        access_token = get_access_token()
         
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.set_debuglevel(1)  # Enable debug output
-            server.starttls(context=context)
-            logger.debug("TLS connection established")
-            
-            # Get fresh token and create auth string
-            access_token = get_access_token()
-            auth_string = generate_oauth2_string(USER_EMAIL, access_token)
-            
-            # Authenticate using XOAUTH2
-            server.ehlo()
-            response = server.docmd("AUTH", f"XOAUTH2 {auth_string}")
-            logger.info(f"Authentication response: {response}")
-            
-            if response[0] != 235:  # 235 is success code for authentication
-                raise Exception(f"Authentication failed: {response}")
-                
-            logger.info("Successfully authenticated with SMTP server")
-            
-            # Send email
-            server.send_message(msg)
-            logger.info(f"Email sent successfully to {to_address}")
+        # Send email using Graph API
+        send_email_via_graph(access_token, to_address, subject, body)
 
         return {"status": "success", "message": "Email sent successfully"}
 
@@ -147,5 +148,4 @@ def handle_email():
         return {"error": error_msg}, 500
 
 if __name__ == "__main__":
-    # Note: This should only be used for development
     app.run(host="0.0.0.0", port=587) 
