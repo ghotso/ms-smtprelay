@@ -21,11 +21,11 @@ SMTP_SERVER = "smtp.office365.com"
 SMTP_PORT = 587
 CLIENT_ID = os.environ.get("CLIENT_ID")
 CLIENT_SECRET = os.environ.get("CLIENT_SECRET")
-TENANT_ID = os.environ.get("TENANT_ID", "common")
+TENANT_ID = os.environ.get("TENANT_ID")
 USER_EMAIL = os.environ.get("USER_EMAIL")
 
 # Validate configuration
-if not all([CLIENT_ID, CLIENT_SECRET, USER_EMAIL]):
+if not all([CLIENT_ID, CLIENT_SECRET, TENANT_ID, USER_EMAIL]):
     logger.error("Missing required environment variables!")
     raise ValueError("Missing required environment variables!")
 
@@ -33,7 +33,7 @@ logger.info(f"Starting SMTP relay for {USER_EMAIL} using {SMTP_SERVER}:{SMTP_POR
 
 # MSAL configuration
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
-SCOPE = ["https://outlook.office365.com/.default"]
+SCOPE = ["https://graph.microsoft.com/.default"]
 
 # Initialize MSAL application
 try:
