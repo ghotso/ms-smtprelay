@@ -6,6 +6,7 @@ import ssl
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import msal
+import base64
 
 # Configure logging
 logging.basicConfig(
@@ -63,16 +64,10 @@ def get_access_token():
         logger.error(f"Error getting access token: {str(e)}")
         raise
 
-class OAuth2Authenticator:
-    def __init__(self):
-        self.access_token = None
-
-    def authenticate(self, mechanism, authobject):
-        if mechanism == "XOAUTH2":
-            logger.debug("Performing XOAUTH2 authentication")
-            auth_string = f"user={USER_EMAIL}\x01auth=Bearer {self.access_token}\x01\x01"
-            return auth_string.encode()
-        return None
+def generate_oauth2_string(username, access_token):
+    """Generate the XOAUTH2 auth string"""
+    auth_string = f"user={username}\x01auth=Bearer {access_token}\x01\x01"
+    return base64.b64encode(auth_string.encode()).decode()
 
 @app.route("/healthcheck", methods=["GET"])
 def healthcheck():
@@ -113,14 +108,13 @@ def handle_email():
             server.starttls(context=context)
             logger.debug("TLS connection established")
             
-            # Get fresh token and set up authenticator
-            authenticator = OAuth2Authenticator()
-            authenticator.access_token = get_access_token()
+            # Get fresh token and create auth string
+            access_token = get_access_token()
+            auth_string = generate_oauth2_string(USER_EMAIL, access_token)
             
-            # Enable SMTP auth with custom authenticator
+            # Authenticate using XOAUTH2
             server.ehlo()
-            server.auth_handler.append("XOAUTH2", authenticator.authenticate)
-            server.auth("XOAUTH2", None)
+            server.docmd("AUTH", f"XOAUTH2 {auth_string}")
             logger.info("Successfully authenticated with SMTP server")
             
             # Send email
