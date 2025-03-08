@@ -9,4 +9,5 @@ COPY smtp_relay.py .
 
 EXPOSE 587
 
-CMD ["python", "smtp_relay.py"] 
+# Use Gunicorn as the production server
+CMD ["gunicorn", "--bind", "0.0.0.0:587", "--log-level", "info", "smtp_relay:app"] 
